@@ -1,6 +1,6 @@
 # ResetRyder - Open Source Brute Force Password Reset Tool
 
-This tool is a brute force password reset tool designed to exploit the vulnerability CVE-2023-24080. The vulnerability was discovered in the Chamberlain myQ v5.222.0.32277 app on iOS, but this tool should work for any web application that has a similar vulnerability. The tool was developed by [SirCryptic](https://github.com/SirCryptic) of the [NullSecurityTeam](https://github.com/NULL-Security-Team).
+This tool is a brute force password reset tool designed to exploit the vulnerability [CVE-2023-24080](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2023-24080). The vulnerability was discovered in the Chamberlain myQ v5.222.0.32277 app on iOS, but this tool should work for any web application that has a similar vulnerability. The tool was developed by [SirCryptic](https://github.com/SirCryptic) of the [NullSecurityTeam](https://github.com/NULL-Security-Team).
 
 ## Installation
 1. Install the required Python packages: `requests` `argparse` `asyncio`.
