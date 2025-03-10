@@ -3,13 +3,17 @@ This tool brute-forces password reset endpoints, targeting flaws like [CVE-2023-
 
 ## Installation
 1. Install Python 3.7+ and packages: pip install aiohttp aiohttp_socks fake_useragent aiofiles PySocks
-2. Use high-quality SOCKS4 proxies (e.g., paid providers) for best results.
+2. Use high-quality SOCKS4 proxies (e.g., paid providers, avoid free lists) for best results.
 
 ## Example Usage
+```
 python resetryder.py -p passwords.txt -u usernames.txt -r https://example.com/reset -x proxies.txt -a 3 -o 10 -c 10
-Check target response (e.g., "Password updated") and update config.json if needed.
+```
+Check target response (e.g., "Password updated") and update config.json's "success_indicators".
 With CSRF token:
+```
 python resetryder.py -p passwords.txt -u usernames.txt -r https://example.com/reset -x proxies.txt --config config_with_csrf.json
+```
 
 The following arguments are required:
 * `-p`: Path to the password list file.
@@ -25,7 +29,7 @@ The following arguments are optional:
 * `--config`: JSON config file (default: config.json).
 
 ## Notes
-For CAPTCHAs, integrate a solver like 2Captcha (not included). Update config with API key.
+CAPTCHAs may block attempts—use a solver like 2Captcha (not included) or Selenium for automation. Edit config.json to add solver API keys when implemented.
 
 ## Disclaimer
 Not responsible for misuse. For educational and authorized testing only. Illegal without permission (e.g., CFAA, Computer Misuse Act).
