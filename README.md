@@ -2,7 +2,10 @@
 This tool brute-forces password reset endpoints, targeting flaws like [CVE-2023-24080](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2023-24080) in Chamberlain myQ v5.222.0.32277 (iOS). Works on similar web apps. By [SirCryptic](https://github.com/SirCryptic) of [NullSecurityTeam](https://github.com/NULL-Security-Team).
 
 ## Installation
-1. Install Python 3.7+ and packages: pip install aiohttp aiohttp_socks fake_useragent aiofiles PySocks
+1. Install Python 3.7+ and packages:
+ ```
+pip install aiohttp aiohttp_socks fake_useragent aiofiles PySocks
+```
 2. Use high-quality SOCKS4 proxies (e.g., paid providers, avoid free lists) for best results.
 
 ## Example Usage
